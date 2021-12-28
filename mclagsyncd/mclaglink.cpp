@@ -18,6 +18,11 @@
  *  Maintainer: Jim Jiang from nephos
  */
 
+#include <execinfo.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+
 #include <string.h>
 #include <errno.h>
 #include <system_error>
@@ -450,6 +455,30 @@ void MclagLink::setIntfMac(char *msg)
     attrs.push_back(mac_attr);
     p_intf_tbl->set(intf_key, attrs);
 
+    #define BT_BUF_SIZE 1000
+    int nptrs;
+    void *buffer[BT_BUF_SIZE];
+    char **strings;
+
+    nptrs = backtrace(buffer, BT_BUF_SIZE);
+    SWSS_LOG_NOTICE("setIntfMac: backtrace() returned %d addresses", nptrs);
+
+    /* The call backtrace_symbols_fd(buffer, nptrs, STDOUT_FILENO)
+        would produce similar output to the following: */
+
+    strings = backtrace_symbols(buffer, nptrs);
+    if (strings == NULL) {
+        perror("setIntfMac: backtrace_symbols");
+        exit(1);
+    }
+    SWSS_LOG_NOTICE("<<<<<<setIntfMac<<<<<<<");
+    for (int j = 0; j < nptrs; j++)
+        SWSS_LOG_NOTICE("called: %s\n", strings[j]);
+
+    SWSS_LOG_NOTICE(">>>>>>setIntfMac>>>>>>>");
+
+    free(strings);
+
     return;
 }
 
@@ -665,12 +694,12 @@ void MclagLink::processMclagDomainCfg(std::deque<KeyOpFieldsValuesTuple> &entrie
 
             for (auto i : kfvFieldsValues(entry))
             {
-                SWSS_LOG_DEBUG(" MCLAGSYNCD CFG Table Updates : "   "Field %s, Value: %s  EntryExits:%d \n", 
+                SWSS_LOG_DEBUG(" MCLAGSYNCD CFG Table Updates : "   "Field %s, Value: %s  EntryExits:%d \n",
                         fvField(i).c_str(), fvValue(i).c_str(), entryExists);
 
                 if (fvField(i) == "source_ip")
                 {
-                    domainData.source_ip = fvValue(i); 
+                    domainData.source_ip = fvValue(i);
 
                     if(!entryExists)
                     {
@@ -1423,11 +1452,14 @@ void MclagLink::mclagsyncdSetSystemId(
     mclag_sub_option_hdr_t    *op_hdr;
     vector<FieldValueTuple>   fvVector;
 
+    SWSS_LOG_ERROR("BEGIN mclagsyncdSetSystemId");
+
     while (cur_len < msg_len)
     {
         cur = msg + cur_len;
         op_hdr = reinterpret_cast<mclag_sub_option_hdr_t *>(static_cast<void *>(cur));
 
+        SWSS_LOG_ERROR("mclagsyncdSetSystemId sub_option_type: %d",op_hdr->op_type);
         switch(op_hdr->op_type)
         {
             case MCLAG_SUB_OPTION_TYPE_MCLAG_ID:
@@ -1879,6 +1911,8 @@ uint64_t MclagLink::readData()
         throw system_error(errno, system_category());
     m_pos += (uint32_t)read;
 
+    SWSS_LOG_NOTICE("STARTING MclagLink->readData");
+
     while (true)
     {
         hdr = reinterpret_cast<mclag_msg_hdr_t *>(static_cast<void *>(m_messageBuffer + start));
@@ -1895,6 +1929,7 @@ uint64_t MclagLink::readData()
 
         msg = ((char*)hdr) + MCLAG_MSG_HDR_LEN;
 
+        SWSS_LOG_NOTICE("PARSING MclagLink->readData: %d", hdr->msg_type);
         switch (hdr->msg_type)
         {
             case MCLAG_MSG_TYPE_PORT_ISOLATE:
@@ -1910,6 +1945,7 @@ uint64_t MclagLink::readData()
                 break;
 
             case MCLAG_MSG_TYPE_SET_INTF_MAC:
+                // todo: trace recv msg
                 setIntfMac(msg);
                 break;
 
